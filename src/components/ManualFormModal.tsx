@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Manual, BrandItem, CategoryItem } from '../types/manual';
+import { savePdfFileToIDB } from '../utils/pdfStorage';
 import { X, Upload, FileText, Image as ImageIcon, Wrench, Plus, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface ManualFormModalProps {
@@ -39,6 +40,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
   const [wiringDiagramNotes, setWiringDiagramNotes] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [uploadedPdfBlob, setUploadedPdfBlob] = useState<Blob | null>(null);
 
   const [jumpers, setJumpers] = useState<Array<{ dip: string; function: string; defaultVal: string }>>([
     { dip: 'PROG', function: 'Gravação de Controles / Percurso', defaultVal: 'OFF' }
@@ -59,6 +61,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       setTagsInput(editingManual.tags.join(', '));
       setJumpers(editingManual.jumperSettings || []);
       setValidationError(null);
+      setUploadedPdfBlob(null);
     } else {
       // Reset form
       setTitle('');
@@ -68,7 +71,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       setModel('');
       setVersion('v1.0');
       setDescription('');
-      setFileUrl('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf');
+      setFileUrl('');
       setFileName('');
       setFileSize('3.5 MB');
       setThumbnailUrl('/images/motor_ppa_dzrio.jpg');
@@ -76,6 +79,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       setTagsInput('');
       setJumpers([{ dip: 'PROG', function: 'Gravação de Controles', defaultVal: 'OFF' }]);
       setValidationError(null);
+      setUploadedPdfBlob(null);
     }
   }, [editingManual, isOpen]);
 
@@ -93,19 +97,11 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
     if (file) {
       setFileName(file.name);
       setFileSize(`${(file.size / (1024 * 1024)).toFixed(1)} MB`);
-      
-      // Fast Blob URL for instant viewing
+      setUploadedPdfBlob(file);
+
+      // Fast Blob URL
       const blobUrl = URL.createObjectURL(file);
       setFileUrl(blobUrl);
-
-      // FileReader fallback for Base64
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setFileUrl(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -134,7 +130,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
     setJumpers(jumpers.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setValidationError(null);
 
@@ -150,6 +146,17 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       return;
     }
 
+    const manualId = editingManual ? editingManual.id : `manual-${Date.now()}`;
+    let finalFileUrl = fileUrl;
+
+    if (uploadedPdfBlob) {
+      try {
+        finalFileUrl = await savePdfFileToIDB(manualId, uploadedPdfBlob);
+      } catch (err) {
+        console.error('Erro ao armazenar PDF no IndexedDB:', err);
+      }
+    }
+
     const finalBrand = brand === 'Outra' && customBrand ? customBrand : brand;
 
     const tags = tagsInput
@@ -158,7 +165,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       .filter(t => t.length > 0);
 
     const newManual: Manual = {
-      id: editingManual ? editingManual.id : `manual-${Date.now()}`,
+      id: manualId,
       title: title.trim(),
       brand: finalBrand,
       category: category || (categories.length > 0 ? categories[0].name : 'Geral'),
@@ -167,7 +174,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       description: description.trim(),
       fileSize: fileSize || '2.5 MB',
       fileType: 'PDF',
-      fileUrl: fileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+      fileUrl: finalFileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
       thumbnailUrl: thumbnailUrl || '/images/motor_ppa_dzrio.jpg',
       updatedAt: new Date().toISOString().split('T')[0],
       wiringDiagramNotes,

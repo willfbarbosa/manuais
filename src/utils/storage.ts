@@ -1,5 +1,6 @@
 import { Manual, BrandItem, CategoryItem } from '../types/manual';
 import { INITIAL_MANUALS } from '../data/initialManuals';
+import { deletePdfFromIDB } from './pdfStorage';
 import {
   isTursoConfigured,
   fetchManualsFromTurso,
@@ -14,14 +15,6 @@ import {
 const STORAGE_MANUALS_KEY = 'eletrozone_manuais_v3_prod';
 const STORAGE_BRANDS_KEY = 'eletrozone_brands_v3_prod';
 const STORAGE_CATEGORIES_KEY = 'eletrozone_categories_v3_prod';
-
-// Limpeza de cache antigo
-try {
-  localStorage.removeItem('eletrozone_manuais_v1');
-  localStorage.removeItem('eletrozone_manuais_v2');
-} catch (e) {
-  // Ignorar erro se não existir
-}
 
 export const INITIAL_BRANDS: BrandItem[] = [
   { id: 'ppa', name: 'PPA', description: 'Automatizadores de Portão, Centrais JetFlex & Barreiras', color: '#f59e0b' },
@@ -42,7 +35,7 @@ export const INITIAL_CATEGORIES: CategoryItem[] = [
   { id: 'cat-seguranca', name: 'Segurança & Alarmes', description: 'Centrais de alarme, cercas elétricas e sensores', iconName: 'Shield' },
 ];
 
-// In-memory fallback cache for heavy files
+// In-memory fallback cache for live Object URLs
 const memoryManualsCache: Record<string, Manual> = {};
 
 // MANUALS STORAGE
@@ -54,7 +47,6 @@ export const getStoredManuals = (): Manual[] => {
       return INITIAL_MANUALS;
     }
     const parsed: Manual[] = JSON.parse(data);
-    // Merge memory cache if fileUrl was optimized
     return parsed.map(m => memoryManualsCache[m.id] ? { ...m, fileUrl: memoryManualsCache[m.id].fileUrl || m.fileUrl } : m);
   } catch (error) {
     console.error('Erro ao ler manuais do localStorage:', error);
@@ -68,9 +60,7 @@ export const loadManualsAsync = async (): Promise<Manual[]> => {
     if (tursoData) {
       try {
         localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
-      } catch (e) {
-        console.warn('LocalStorage quota limit reached on sync from Turso.');
-      }
+      } catch (e) {}
       return tursoData;
     }
   }
@@ -81,7 +71,6 @@ export const saveManual = (manual: Manual): Manual[] => {
   const manuals = getStoredManuals();
   const existingIndex = manuals.findIndex(m => m.id === manual.id);
 
-  // Store in memory cache
   memoryManualsCache[manual.id] = manual;
 
   let updated: Manual[];
@@ -92,26 +81,24 @@ export const saveManual = (manual: Manual): Manual[] => {
     updated = [{ ...manual, updatedAt: new Date().toISOString().split('T')[0] }, ...manuals];
   }
 
-  // Safe localStorage set with QuotaExceededError protection
+  // Preserve manual structure in localStorage without corrupting fileUrl
   try {
     localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
   } catch (error) {
-    console.warn('LocalStorage quota exceeded. Optimizing heavy PDF file storage...');
-    // If quota exceeded (large PDF Base64), save lighter version to localStorage
-    const lightweightManuals = updated.map(m => {
-      if (m.fileUrl && m.fileUrl.length > 500000) {
-        return { ...m, fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' };
+    // If localStorage quota hit, store lightweight manual reference and use IndexedDB for Blob
+    const lightweight = updated.map(m => {
+      if (m.fileUrl && m.fileUrl.length > 200000) {
+        return { ...m, fileUrl: `idb://${m.id}` };
       }
       return m;
     });
     try {
-      localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(lightweightManuals));
+      localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(lightweight));
     } catch (e) {
       console.error('Failed to save to localStorage:', e);
     }
   }
 
-  // Async sync to Turso DB (Turso DB handles full size PDF Base64/URLs)
   if (isTursoConfigured()) {
     saveManualToTurso(manual).catch(console.error);
   }
@@ -121,13 +108,12 @@ export const saveManual = (manual: Manual): Manual[] => {
 
 export const deleteManual = (id: string): Manual[] => {
   delete memoryManualsCache[id];
+  deletePdfFromIDB(id).catch(console.error);
   const manuals = getStoredManuals();
   const updated = manuals.filter(m => m.id !== id);
   try {
     localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) {}
 
   if (isTursoConfigured()) {
     deleteManualFromTurso(id).catch(console.error);
@@ -148,9 +134,7 @@ export const incrementDownloadCount = (id: string): Manual[] => {
   });
   try {
     localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) {}
   return updated;
 };
 

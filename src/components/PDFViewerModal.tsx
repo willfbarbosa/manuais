@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Manual } from '../types/manual';
 import { getBrandTheme } from '../utils/brandStyles';
+import { getPdfBlobUrlFromIDB } from '../utils/pdfStorage';
 import { X, Download, Printer, Share2, Wrench, Check, FileText, Cpu, ExternalLink } from 'lucide-react';
 
 interface PDFViewerModalProps {
@@ -16,6 +17,26 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
 }) => {
   const [showTechnicalNotes, setShowTechnicalNotes] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [activePdfUrl, setActivePdfUrl] = useState<string>('');
+  const [isLoadingPdf, setIsLoadingPdf] = useState(true);
+
+  useEffect(() => {
+    if (manual) {
+      setIsLoadingPdf(true);
+      getPdfBlobUrlFromIDB(manual.id, manual.fileUrl)
+        .then((url) => {
+          setActivePdfUrl(url || manual.fileUrl);
+        })
+        .catch(() => {
+          setActivePdfUrl(manual.fileUrl);
+        })
+        .finally(() => {
+          setIsLoadingPdf(false);
+        });
+    } else {
+      setActivePdfUrl('');
+    }
+  }, [manual]);
 
   if (!manual) return null;
 
@@ -30,6 +51,12 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleOpenInNewTab = () => {
+    if (activePdfUrl) {
+      window.open(activePdfUrl, '_blank');
+    }
   };
 
   return (
@@ -115,12 +142,42 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
           <div className="flex-1 bg-zinc-950 flex flex-col relative overflow-hidden">
             
             {/* Embedded Frame */}
-            <div className="flex-1 w-full h-full p-2">
-              <iframe
-                src={`${manual.fileUrl}#toolbar=1`}
-                title={manual.title}
-                className="w-full h-full rounded-2xl border border-zinc-800 bg-white"
-              />
+            <div className="flex-1 w-full h-full p-2 relative">
+              {isLoadingPdf ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400 gap-3">
+                  <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-xs font-mono">Carregando arquivo PDF...</span>
+                </div>
+              ) : activePdfUrl ? (
+                <object
+                  data={activePdfUrl}
+                  type="application/pdf"
+                  className="w-full h-full rounded-2xl border border-zinc-800 bg-zinc-900"
+                >
+                  <embed src={activePdfUrl} type="application/pdf" className="w-full h-full rounded-2xl" />
+                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-4 bg-zinc-900 rounded-2xl border border-zinc-800">
+                    <FileText className="w-12 h-12 text-red-500" />
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-1">Visualizar Documento PDF</h4>
+                      <p className="text-xs text-zinc-400 max-w-md">
+                        O navegador requer visualização direta para este arquivo ({manual.fileSize}).
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleOpenInNewTab}
+                      className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Abrir PDF Completo em Nova Aba
+                    </button>
+                  </div>
+                </object>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-4 bg-zinc-900 rounded-2xl border border-zinc-800">
+                  <FileText className="w-12 h-12 text-zinc-600" />
+                  <p className="text-xs text-zinc-400">Nenhum arquivo PDF carregado para este manual.</p>
+                </div>
+              )}
             </div>
 
             {/* Bottom Floating Bar */}
@@ -132,15 +189,13 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
                 <span>Tamanho: {manual.fileSize}</span>
               </div>
               <div className="flex items-center gap-3">
-                <a
-                  href={manual.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-red-400 hover:underline flex items-center gap-1"
+                <button
+                  onClick={handleOpenInNewTab}
+                  className="text-red-400 hover:underline flex items-center gap-1 font-bold text-xs"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  Abrir em nova aba
-                </a>
+                  Abrir PDF em nova aba
+                </button>
               </div>
             </div>
           </div>
