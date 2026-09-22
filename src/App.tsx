@@ -2,13 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Manual, ViewMode, BrandItem, CategoryItem } from './types/manual';
 import {
   getStoredManuals,
+  loadManualsAsync,
   saveManual,
   deleteManual,
   incrementDownloadCount,
   getStoredBrands,
+  loadBrandsAsync,
   saveBrand,
   deleteBrand,
   getStoredCategories,
+  loadCategoriesAsync,
   saveCategory,
   deleteCategory
 } from './utils/storage';
@@ -23,6 +26,7 @@ import { PDFViewerModal } from './components/PDFViewerModal';
 import { TechnicalCheatsheetModal } from './components/TechnicalCheatsheetModal';
 import { BackupModal } from './components/BackupModal';
 import { FileText, PlusCircle, Shield } from 'lucide-react';
+import { isTursoConfigured } from './lib/turso';
 
 export function App() {
   const [manuals, setManuals] = useState<Manual[]>([]);
@@ -44,11 +48,16 @@ export function App() {
   const [isCheatsheetOpen, setIsCheatsheetOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
 
-  // Load state on mount
+  // Load initial local data & sync with Turso DB if configured
   useEffect(() => {
     setManuals(getStoredManuals());
     setBrands(getStoredBrands());
     setCategories(getStoredCategories());
+
+    // Async Turso Sync
+    loadManualsAsync().then(setManuals);
+    loadBrandsAsync().then(setBrands);
+    loadCategoriesAsync().then(setCategories);
   }, []);
 
   // Filtered manuals memo
@@ -302,8 +311,13 @@ export function App() {
               <Shield className="w-4 h-4" />
             </div>
             <div>
-              <p className="font-bold text-white">
-                ELETROZONE &bull; Central de Manuais (Preto & Vermelho)
+              <p className="font-bold text-white flex items-center gap-2">
+                ELETROZONE &bull; Central de Manuais
+                {isTursoConfigured() && (
+                  <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-mono px-2 py-0.5 rounded border border-emerald-500/30">
+                    Turso DB Conectado
+                  </span>
+                )}
               </p>
               <p className="text-[11px] text-zinc-500 font-mono">
                 Hospedado em: <span className="text-red-400">manuais.eletrozone.net.br</span>

@@ -1,5 +1,15 @@
 import { Manual, BrandItem, CategoryItem } from '../types/manual';
 import { INITIAL_MANUALS } from '../data/initialManuals';
+import {
+  isTursoConfigured,
+  fetchManualsFromTurso,
+  saveManualToTurso,
+  deleteManualFromTurso,
+  fetchBrandsFromTurso,
+  saveBrandToTurso,
+  fetchCategoriesFromTurso,
+  saveCategoryToTurso
+} from '../lib/turso';
 
 const STORAGE_MANUALS_KEY = 'eletrozone_manuais_v1';
 const STORAGE_BRANDS_KEY = 'eletrozone_brands_v1';
@@ -10,10 +20,10 @@ export const INITIAL_BRANDS: BrandItem[] = [
   { id: 'peccinin', name: 'Peccinin', description: 'Motores Deslizantes, Basculantes & Centrais CP', color: '#3b82f6' },
   { id: 'jfl', name: 'JFL', description: 'Centrais de Alarme, Automação Smart & Receptores', color: '#ef4444' },
   { id: 'intelbras', name: 'Intelbras', description: 'Controle de Acesso Biométrico, Câmeras & Interfonia', color: '#10b981' },
-  { id: 'asus', name: 'Asus', description: 'Placas Mãe Hardware, Servidores & Bios Cheatsheet', color: '#00e5ff' },
+  { id: 'asus', name: 'Asus', description: 'Placas Mãe Hardware, Servidores & Bios Cheatsheet', color: '#dc2626' },
   { id: 'ipec', name: 'IPEC', description: 'Módulos Relé de Automação, Receptores & Fechaduras', color: '#f97316' },
   { id: 'garen', name: 'Garen', description: 'Automatizadores de Portão & Centrais Wave', color: '#a855f7' },
-  { id: 'rossi', name: 'Rossi', description: 'Motores Rossi Nitro, Centrais de Comando VK', color: '#14b8a6' },
+  { id: 'rossi', name: 'Rossi', description: 'Motores Rossi Nitro, Centrais de Comando VK', color: '#f43f5e' },
 ];
 
 export const INITIAL_CATEGORIES: CategoryItem[] = [
@@ -39,6 +49,17 @@ export const getStoredManuals = (): Manual[] => {
   }
 };
 
+export const loadManualsAsync = async (): Promise<Manual[]> => {
+  if (isTursoConfigured()) {
+    const tursoData = await fetchManualsFromTurso();
+    if (tursoData && tursoData.length > 0) {
+      localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
+      return tursoData;
+    }
+  }
+  return getStoredManuals();
+};
+
 export const saveManual = (manual: Manual): Manual[] => {
   const manuals = getStoredManuals();
   const existingIndex = manuals.findIndex(m => m.id === manual.id);
@@ -52,6 +73,12 @@ export const saveManual = (manual: Manual): Manual[] => {
   }
 
   localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+
+  // Async sync to Turso DB
+  if (isTursoConfigured()) {
+    saveManualToTurso(manual).catch(console.error);
+  }
+
   return updated;
 };
 
@@ -59,6 +86,11 @@ export const deleteManual = (id: string): Manual[] => {
   const manuals = getStoredManuals();
   const updated = manuals.filter(m => m.id !== id);
   localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+
+  if (isTursoConfigured()) {
+    deleteManualFromTurso(id).catch(console.error);
+  }
+
   return updated;
 };
 
@@ -66,7 +98,9 @@ export const incrementDownloadCount = (id: string): Manual[] => {
   const manuals = getStoredManuals();
   const updated = manuals.map(m => {
     if (m.id === id) {
-      return { ...m, downloadCount: (m.downloadCount || 0) + 1 };
+      const newManual = { ...m, downloadCount: (m.downloadCount || 0) + 1 };
+      if (isTursoConfigured()) saveManualToTurso(newManual).catch(console.error);
+      return newManual;
     }
     return m;
   });
@@ -88,6 +122,17 @@ export const getStoredBrands = (): BrandItem[] => {
   }
 };
 
+export const loadBrandsAsync = async (): Promise<BrandItem[]> => {
+  if (isTursoConfigured()) {
+    const tursoBrands = await fetchBrandsFromTurso();
+    if (tursoBrands && tursoBrands.length > 0) {
+      localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(tursoBrands));
+      return tursoBrands;
+    }
+  }
+  return getStoredBrands();
+};
+
 export const saveBrand = (brand: BrandItem): BrandItem[] => {
   const brands = getStoredBrands();
   const index = brands.findIndex(b => b.id === brand.id || b.name.toLowerCase() === brand.name.toLowerCase());
@@ -101,6 +146,7 @@ export const saveBrand = (brand: BrandItem): BrandItem[] => {
   }
   
   localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(updated));
+  if (isTursoConfigured()) saveBrandToTurso(brand).catch(console.error);
   return updated;
 };
 
@@ -125,6 +171,17 @@ export const getStoredCategories = (): CategoryItem[] => {
   }
 };
 
+export const loadCategoriesAsync = async (): Promise<CategoryItem[]> => {
+  if (isTursoConfigured()) {
+    const tursoCats = await fetchCategoriesFromTurso();
+    if (tursoCats && tursoCats.length > 0) {
+      localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(tursoCats));
+      return tursoCats;
+    }
+  }
+  return getStoredCategories();
+};
+
 export const saveCategory = (category: CategoryItem): CategoryItem[] => {
   const categories = getStoredCategories();
   const index = categories.findIndex(c => c.id === category.id || c.name.toLowerCase() === category.name.toLowerCase());
@@ -138,6 +195,7 @@ export const saveCategory = (category: CategoryItem): CategoryItem[] => {
   }
   
   localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+  if (isTursoConfigured()) saveCategoryToTurso(category).catch(console.error);
   return updated;
 };
 
