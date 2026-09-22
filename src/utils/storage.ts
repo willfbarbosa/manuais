@@ -11,9 +11,17 @@ import {
   saveCategoryToTurso
 } from '../lib/turso';
 
-const STORAGE_MANUALS_KEY = 'eletrozone_manuais_v1';
-const STORAGE_BRANDS_KEY = 'eletrozone_brands_v1';
-const STORAGE_CATEGORIES_KEY = 'eletrozone_categories_v1';
+const STORAGE_MANUALS_KEY = 'eletrozone_manuais_v3_prod';
+const STORAGE_BRANDS_KEY = 'eletrozone_brands_v3_prod';
+const STORAGE_CATEGORIES_KEY = 'eletrozone_categories_v3_prod';
+
+// Limpeza de v1 antiga com arquivos de teste
+try {
+  localStorage.removeItem('eletrozone_manuais_v1');
+  localStorage.removeItem('eletrozone_manuais_v2');
+} catch (e) {
+  // Ignorar erro se não existir
+}
 
 export const INITIAL_BRANDS: BrandItem[] = [
   { id: 'ppa', name: 'PPA', description: 'Automatizadores de Portão, Centrais JetFlex & Barreiras', color: '#f59e0b' },
@@ -52,7 +60,7 @@ export const getStoredManuals = (): Manual[] => {
 export const loadManualsAsync = async (): Promise<Manual[]> => {
   if (isTursoConfigured()) {
     const tursoData = await fetchManualsFromTurso();
-    if (tursoData && tursoData.length > 0) {
+    if (tursoData) {
       localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
       return tursoData;
     }
@@ -221,7 +229,7 @@ export const exportManualsJSON = (): void => {
   const categories = getStoredCategories();
 
   const backupObj = {
-    version: '2.0',
+    version: '3.0',
     exportDate: new Date().toISOString(),
     manuals,
     brands,
