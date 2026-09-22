@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Manual, BrandItem, CategoryItem } from '../types/manual';
-import { X, Upload, FileText, Image as ImageIcon, Wrench, Plus, Trash2, CheckCircle2, Layers, FolderPlus } from 'lucide-react';
+import { X, Upload, FileText, Image as ImageIcon, Wrench, Plus, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface ManualFormModalProps {
   isOpen: boolean;
@@ -23,6 +23,8 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
   onOpenBrandModal,
   onOpenCategoryModal
 }) => {
+  const formRef = useRef<HTMLFormElement>(null);
+
   const [title, setTitle] = useState('');
   const [brand, setBrand] = useState<string>('PPA');
   const [customBrand, setCustomBrand] = useState('');
@@ -36,6 +38,8 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [wiringDiagramNotes, setWiringDiagramNotes] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+
   const [jumpers, setJumpers] = useState<Array<{ dip: string; function: string; defaultVal: string }>>([
     { dip: 'PROG', function: 'Gravação de Controles / Percurso', defaultVal: 'OFF' }
   ]);
@@ -54,6 +58,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       setWiringDiagramNotes(editingManual.wiringDiagramNotes || '');
       setTagsInput(editingManual.tags.join(', '));
       setJumpers(editingManual.jumperSettings || []);
+      setValidationError(null);
     } else {
       // Reset form
       setTitle('');
@@ -70,8 +75,15 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       setWiringDiagramNotes('');
       setTagsInput('');
       setJumpers([{ dip: 'PROG', function: 'Gravação de Controles', defaultVal: 'OFF' }]);
+      setValidationError(null);
     }
-  }, [editingManual, isOpen, brands, categories]);
+  }, [editingManual, isOpen]);
+
+  // Keep brand and category in sync if new items added
+  useEffect(() => {
+    if (!brand && brands.length > 0) setBrand(brands[0].name);
+    if (!category && categories.length > 0) setCategory(categories[0].name);
+  }, [brands, categories]);
 
   if (!isOpen) return null;
 
@@ -81,6 +93,12 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
     if (file) {
       setFileName(file.name);
       setFileSize(`${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+      
+      // Fast Blob URL for instant viewing
+      const blobUrl = URL.createObjectURL(file);
+      setFileUrl(blobUrl);
+
+      // FileReader fallback for Base64
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -95,6 +113,9 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const blobUrl = URL.createObjectURL(file);
+      setThumbnailUrl(blobUrl);
+
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -115,8 +136,17 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !model.trim()) {
-      alert('Por favor, preencha o título e o modelo do equipamento.');
+    setValidationError(null);
+
+    if (!title.trim()) {
+      setValidationError('Por favor, preencha o Título do Manual na Seção 1.');
+      formRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (!model.trim()) {
+      setValidationError('Por favor, preencha o Modelo / Código Comercial na Seção 1.');
+      formRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -129,12 +159,12 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
 
     const newManual: Manual = {
       id: editingManual ? editingManual.id : `manual-${Date.now()}`,
-      title,
+      title: title.trim(),
       brand: finalBrand,
-      category,
-      model,
+      category: category || (categories.length > 0 ? categories[0].name : 'Geral'),
+      model: model.trim(),
       version: version || 'v1.0',
-      description,
+      description: description.trim(),
       fileSize: fileSize || '2.5 MB',
       fileType: 'PDF',
       fileUrl: fileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
@@ -146,8 +176,13 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
       downloadCount: editingManual ? editingManual.downloadCount : 0
     };
 
-    onSave(newManual);
-    onClose();
+    try {
+      onSave(newManual);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar manual. Verifique se os dados estão corretos.');
+    }
   };
 
   return (
@@ -177,8 +212,16 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
           </button>
         </div>
 
+        {/* Validation Warning Alert if needed */}
+        {validationError && (
+          <div className="mx-6 mt-4 p-3 bg-red-500/20 border border-red-500/40 rounded-xl text-red-300 text-xs font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+            <span>{validationError}</span>
+          </div>
+        )}
+
         {/* Modal Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+        <form ref={formRef} onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
           
           {/* Section 1: Basic Equipment Info */}
           <div className="space-y-4">
@@ -254,10 +297,12 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="Ex: Dz Rio 500 / SS 3530 / Prime B450M"
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                    if (validationError) setValidationError(null);
+                  }}
                   className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:border-red-500 font-medium"
                 />
               </div>
@@ -282,10 +327,12 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
               </label>
               <input
                 type="text"
-                required
                 placeholder="Ex: Manual Técnico de Instalação e Ligação Elétrica Motor PPA Dz Rio"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  if (validationError) setValidationError(null);
+                }}
                 className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:border-red-500 font-medium"
               />
             </div>
@@ -317,7 +364,7 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
                 <p className="text-xs font-semibold text-white mb-1">
                   Upload do Arquivo PDF
                 </p>
-                <p className="text-[11px] text-zinc-400 mb-3">
+                <p className="text-[11px] text-zinc-400 mb-3 truncate px-2">
                   {fileName ? `Selecionado: ${fileName}` : 'Arraste ou selecione o arquivo PDF técnico'}
                 </p>
                 <label className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-bold rounded-xl border border-red-500/40 cursor-pointer transition-all">

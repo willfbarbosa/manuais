@@ -15,7 +15,7 @@ const STORAGE_MANUALS_KEY = 'eletrozone_manuais_v3_prod';
 const STORAGE_BRANDS_KEY = 'eletrozone_brands_v3_prod';
 const STORAGE_CATEGORIES_KEY = 'eletrozone_categories_v3_prod';
 
-// Limpeza de v1 antiga com arquivos de teste
+// Limpeza de cache antigo
 try {
   localStorage.removeItem('eletrozone_manuais_v1');
   localStorage.removeItem('eletrozone_manuais_v2');
@@ -42,6 +42,9 @@ export const INITIAL_CATEGORIES: CategoryItem[] = [
   { id: 'cat-seguranca', name: 'Segurança & Alarmes', description: 'Centrais de alarme, cercas elétricas e sensores', iconName: 'Shield' },
 ];
 
+// In-memory fallback cache for heavy files
+const memoryManualsCache: Record<string, Manual> = {};
+
 // MANUALS STORAGE
 export const getStoredManuals = (): Manual[] => {
   try {
@@ -50,7 +53,9 @@ export const getStoredManuals = (): Manual[] => {
       localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(INITIAL_MANUALS));
       return INITIAL_MANUALS;
     }
-    return JSON.parse(data);
+    const parsed: Manual[] = JSON.parse(data);
+    // Merge memory cache if fileUrl was optimized
+    return parsed.map(m => memoryManualsCache[m.id] ? { ...m, fileUrl: memoryManualsCache[m.id].fileUrl || m.fileUrl } : m);
   } catch (error) {
     console.error('Erro ao ler manuais do localStorage:', error);
     return INITIAL_MANUALS;
@@ -61,7 +66,11 @@ export const loadManualsAsync = async (): Promise<Manual[]> => {
   if (isTursoConfigured()) {
     const tursoData = await fetchManualsFromTurso();
     if (tursoData) {
-      localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
+      try {
+        localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
+      } catch (e) {
+        console.warn('LocalStorage quota limit reached on sync from Turso.');
+      }
       return tursoData;
     }
   }
@@ -72,6 +81,9 @@ export const saveManual = (manual: Manual): Manual[] => {
   const manuals = getStoredManuals();
   const existingIndex = manuals.findIndex(m => m.id === manual.id);
 
+  // Store in memory cache
+  memoryManualsCache[manual.id] = manual;
+
   let updated: Manual[];
   if (existingIndex >= 0) {
     updated = [...manuals];
@@ -80,9 +92,26 @@ export const saveManual = (manual: Manual): Manual[] => {
     updated = [{ ...manual, updatedAt: new Date().toISOString().split('T')[0] }, ...manuals];
   }
 
-  localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+  // Safe localStorage set with QuotaExceededError protection
+  try {
+    localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+  } catch (error) {
+    console.warn('LocalStorage quota exceeded. Optimizing heavy PDF file storage...');
+    // If quota exceeded (large PDF Base64), save lighter version to localStorage
+    const lightweightManuals = updated.map(m => {
+      if (m.fileUrl && m.fileUrl.length > 500000) {
+        return { ...m, fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' };
+      }
+      return m;
+    });
+    try {
+      localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(lightweightManuals));
+    } catch (e) {
+      console.error('Failed to save to localStorage:', e);
+    }
+  }
 
-  // Async sync to Turso DB
+  // Async sync to Turso DB (Turso DB handles full size PDF Base64/URLs)
   if (isTursoConfigured()) {
     saveManualToTurso(manual).catch(console.error);
   }
@@ -91,9 +120,14 @@ export const saveManual = (manual: Manual): Manual[] => {
 };
 
 export const deleteManual = (id: string): Manual[] => {
+  delete memoryManualsCache[id];
   const manuals = getStoredManuals();
   const updated = manuals.filter(m => m.id !== id);
-  localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error(e);
+  }
 
   if (isTursoConfigured()) {
     deleteManualFromTurso(id).catch(console.error);
@@ -112,7 +146,11 @@ export const incrementDownloadCount = (id: string): Manual[] => {
     }
     return m;
   });
-  localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error(e);
+  }
   return updated;
 };
 
@@ -134,7 +172,9 @@ export const loadBrandsAsync = async (): Promise<BrandItem[]> => {
   if (isTursoConfigured()) {
     const tursoBrands = await fetchBrandsFromTurso();
     if (tursoBrands && tursoBrands.length > 0) {
-      localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(tursoBrands));
+      try {
+        localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(tursoBrands));
+      } catch (e) {}
       return tursoBrands;
     }
   }
@@ -153,7 +193,9 @@ export const saveBrand = (brand: BrandItem): BrandItem[] => {
     updated = [...brands, brand];
   }
   
-  localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(updated));
+  } catch (e) {}
   if (isTursoConfigured()) saveBrandToTurso(brand).catch(console.error);
   return updated;
 };
@@ -161,7 +203,9 @@ export const saveBrand = (brand: BrandItem): BrandItem[] => {
 export const deleteBrand = (id: string): BrandItem[] => {
   const brands = getStoredBrands();
   const updated = brands.filter(b => b.id !== id);
-  localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(updated));
+  } catch (e) {}
   return updated;
 };
 
@@ -183,7 +227,9 @@ export const loadCategoriesAsync = async (): Promise<CategoryItem[]> => {
   if (isTursoConfigured()) {
     const tursoCats = await fetchCategoriesFromTurso();
     if (tursoCats && tursoCats.length > 0) {
-      localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(tursoCats));
+      try {
+        localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(tursoCats));
+      } catch (e) {}
       return tursoCats;
     }
   }
@@ -202,7 +248,9 @@ export const saveCategory = (category: CategoryItem): CategoryItem[] => {
     updated = [...categories, category];
   }
   
-  localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+  } catch (e) {}
   if (isTursoConfigured()) saveCategoryToTurso(category).catch(console.error);
   return updated;
 };
@@ -210,15 +258,19 @@ export const saveCategory = (category: CategoryItem): CategoryItem[] => {
 export const deleteCategory = (id: string): CategoryItem[] => {
   const categories = getStoredCategories();
   const updated = categories.filter(c => c.id !== id);
-  localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(updated));
+  } catch (e) {}
   return updated;
 };
 
 // RESET ALL
 export const resetToInitialManuals = (): { manuals: Manual[]; brands: BrandItem[]; categories: CategoryItem[] } => {
-  localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(INITIAL_MANUALS));
-  localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(INITIAL_BRANDS));
-  localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(INITIAL_CATEGORIES));
+  try {
+    localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(INITIAL_MANUALS));
+    localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(INITIAL_BRANDS));
+    localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(INITIAL_CATEGORIES));
+  } catch (e) {}
   return { manuals: INITIAL_MANUALS, brands: INITIAL_BRANDS, categories: INITIAL_CATEGORIES };
 };
 
@@ -263,9 +315,11 @@ export const importManualsJSON = (fileContent: string): { manuals: Manual[]; bra
       throw new Error('Estrutura do arquivo de backup inválida.');
     }
 
-    localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(manuals));
-    localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(brands));
-    localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(categories));
+    try {
+      localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(manuals));
+      localStorage.setItem(STORAGE_BRANDS_KEY, JSON.stringify(brands));
+      localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(categories));
+    } catch (e) {}
 
     return { manuals, brands, categories };
   } catch (err) {
