@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Manual } from '../types/manual';
 import { getBrandTheme } from '../utils/brandStyles';
-import { getPdfBlobUrlFromIDB } from '../utils/pdfStorage';
-import { X, Download, Printer, Share2, Wrench, Check, FileText, Cpu, ExternalLink } from 'lucide-react';
+import { getPdfBlobUrlFromIDB, ensureBlobUrl } from '../utils/pdfStorage';
+import { X, Download, Printer, Share2, Wrench, Check, FileText, Cpu, ExternalLink, Eye } from 'lucide-react';
 
 interface PDFViewerModalProps {
   manual: Manual | null;
@@ -25,10 +25,11 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
       setIsLoadingPdf(true);
       getPdfBlobUrlFromIDB(manual.id, manual.fileUrl)
         .then((url) => {
-          setActivePdfUrl(url || manual.fileUrl);
+          const finalUrl = ensureBlobUrl(url || manual.fileUrl);
+          setActivePdfUrl(finalUrl);
         })
         .catch(() => {
-          setActivePdfUrl(manual.fileUrl);
+          setActivePdfUrl(ensureBlobUrl(manual.fileUrl));
         })
         .finally(() => {
           setIsLoadingPdf(false);
@@ -55,7 +56,16 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
 
   const handleOpenInNewTab = () => {
     if (activePdfUrl) {
-      window.open(activePdfUrl, '_blank');
+      const w = window.open(activePdfUrl, '_blank');
+      if (!w) {
+        // Fallback for popup blocker
+        const a = document.createElement('a');
+        a.href = activePdfUrl;
+        a.target = '_blank';
+        a.click();
+      }
+    } else {
+      alert('Arquivo PDF não localizado. Por favor, faça o upload do arquivo novamente no cadastro do manual.');
     }
   };
 
@@ -88,6 +98,17 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
 
           {/* Controls & Tools */}
           <div className="flex items-center gap-2 shrink-0">
+            {activePdfUrl && (
+              <button
+                onClick={handleOpenInNewTab}
+                className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                title="Abrir PDF Completo em Nova Aba"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Abrir PDF em Nova Aba</span>
+              </button>
+            )}
+
             {manual.wiringDiagramNotes && (
               <button
                 onClick={() => setShowTechnicalNotes(!showTechnicalNotes)}
@@ -148,34 +169,40 @@ export const PDFViewerModal: React.FC<PDFViewerModalProps> = ({
                   <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-xs font-mono">Carregando arquivo PDF...</span>
                 </div>
-              ) : activePdfUrl ? (
-                <object
-                  data={activePdfUrl}
-                  type="application/pdf"
-                  className="w-full h-full rounded-2xl border border-zinc-800 bg-zinc-900"
-                >
-                  <embed src={activePdfUrl} type="application/pdf" className="w-full h-full rounded-2xl" />
-                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-4 bg-zinc-900 rounded-2xl border border-zinc-800">
-                    <FileText className="w-12 h-12 text-red-500" />
-                    <div>
-                      <h4 className="text-sm font-bold text-white mb-1">Visualizar Documento PDF</h4>
-                      <p className="text-xs text-zinc-400 max-w-md">
-                        O navegador requer visualização direta para este arquivo ({manual.fileSize}).
-                      </p>
-                    </div>
+              ) : activePdfUrl && !activePdfUrl.includes('dummy.pdf') ? (
+                <iframe
+                  src={activePdfUrl}
+                  title={manual.title}
+                  className="w-full h-full rounded-2xl border border-zinc-800 bg-white"
+                />
+              ) : (
+                /* Clear Fallback Banner when file needs direct opening */
+                <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-4 bg-zinc-900 rounded-2xl border border-zinc-800">
+                  <div className="w-16 h-16 rounded-2xl bg-red-500/20 text-red-400 border border-red-500/30 flex items-center justify-center">
+                    <FileText className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white mb-1">Visualizar Documento PDF ({manual.fileSize})</h4>
+                    <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                      O arquivo de manual está carregado e pronto. Clique no botão abaixo para abrir a leitura completa em alta definição.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-3 pt-2">
                     <button
                       onClick={handleOpenInNewTab}
-                      className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2"
+                      className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 cursor-pointer transition-all"
                     >
-                      <ExternalLink className="w-4 h-4" />
-                      Abrir PDF Completo em Nova Aba
+                      <Eye className="w-4 h-4" />
+                      Visualizar PDF em Nova Aba
+                    </button>
+                    <button
+                      onClick={() => onDownload(manual)}
+                      className="px-5 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl border border-zinc-700 flex items-center gap-2 cursor-pointer transition-all"
+                    >
+                      <Download className="w-4 h-4" />
+                      Baixar Arquivo ({manual.fileSize})
                     </button>
                   </div>
-                </object>
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-4 bg-zinc-900 rounded-2xl border border-zinc-800">
-                  <FileText className="w-12 h-12 text-zinc-600" />
-                  <p className="text-xs text-zinc-400">Nenhum arquivo PDF carregado para este manual.</p>
                 </div>
               )}
             </div>

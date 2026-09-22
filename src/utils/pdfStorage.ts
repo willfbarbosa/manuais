@@ -17,6 +17,27 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
+export const ensureBlobUrl = (urlOrData: string): string => {
+  if (!urlOrData) return '';
+  if (urlOrData.startsWith('blob:')) return urlOrData;
+  if (urlOrData.startsWith('data:application/pdf')) {
+    try {
+      const arr = urlOrData.split(',');
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: 'application/pdf' });
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      return urlOrData;
+    }
+  }
+  return urlOrData;
+};
+
 export const savePdfFileToIDB = async (id: string, fileOrBlob: Blob | File | string): Promise<string> => {
   try {
     const db = await openDB();
@@ -24,7 +45,6 @@ export const savePdfFileToIDB = async (id: string, fileOrBlob: Blob | File | str
 
     if (typeof fileOrBlob === 'string') {
       if (fileOrBlob.startsWith('data:')) {
-        // Convert base64 data url to Blob
         const arr = fileOrBlob.split(',');
         const mimeMatch = arr[0].match(/:(.*?);/);
         const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
@@ -36,7 +56,7 @@ export const savePdfFileToIDB = async (id: string, fileOrBlob: Blob | File | str
         }
         blobToStore = new Blob([u8arr], { type: mime });
       } else {
-        return fileOrBlob;
+        return ensureBlobUrl(fileOrBlob);
       }
     } else {
       blobToStore = fileOrBlob;
@@ -58,7 +78,7 @@ export const savePdfFileToIDB = async (id: string, fileOrBlob: Blob | File | str
     if (fileOrBlob instanceof Blob) {
       return URL.createObjectURL(fileOrBlob);
     }
-    return typeof fileOrBlob === 'string' ? fileOrBlob : '';
+    return typeof fileOrBlob === 'string' ? ensureBlobUrl(fileOrBlob) : '';
   }
 };
 
@@ -75,14 +95,14 @@ export const getPdfBlobUrlFromIDB = async (id: string, fallbackUrl?: string): Pr
           const objectUrl = URL.createObjectURL(req.result);
           resolve(objectUrl);
         } else {
-          resolve(fallbackUrl || '');
+          resolve(ensureBlobUrl(fallbackUrl || ''));
         }
       };
-      req.onerror = () => resolve(fallbackUrl || '');
+      req.onerror = () => resolve(ensureBlobUrl(fallbackUrl || ''));
     });
   } catch (err) {
     console.error('Erro ao buscar PDF do IndexedDB:', err);
-    return fallbackUrl || '';
+    return ensureBlobUrl(fallbackUrl || '');
   }
 };
 
