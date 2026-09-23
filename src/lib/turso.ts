@@ -1,5 +1,39 @@
 import { createClient } from '@libsql/client/web';
 import { Manual, BrandItem, CategoryItem } from '../types/manual';
+import { getPdfBlobUrlFromIDB } from '../utils/pdfStorage';
+
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+const resolveFileUrlForCloud = async (manual: Manual): Promise<string> => {
+  const url = manual.fileUrl || '';
+  if (!url) return 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+  if (url.startsWith('data:')) return url;
+  if (url.startsWith('http') && !url.startsWith('http://localhost') && !url.includes('127.0.0.1')) {
+    return url;
+  }
+
+  try {
+    const blobUrl = await getPdfBlobUrlFromIDB(manual.id, url);
+    if (blobUrl) {
+      const res = await fetch(blobUrl);
+      const blob = await res.blob();
+      if (blob && blob.size > 0) {
+        return await blobToBase64(blob);
+      }
+    }
+  } catch (e) {
+    console.warn('Could not convert local PDF blob to base64 for Turso:', e);
+  }
+
+  return url;
+};
 
 // Env variables for Vercel / Vite (supports both VITE_ and TURSO_ prefixes)
 const getTursoUrl = (): string => {
@@ -122,6 +156,7 @@ export const saveManualToTurso = async (manual: Manual): Promise<boolean> => {
 
   try {
     await initTursoTables();
+    const cloudFileUrl = await resolveFileUrlForCloud(manual);
     await client.execute({
       sql: `INSERT INTO manuals (id, title, brand, category, model, version, description, file_size, file_type, file_url, thumbnail_url, updated_at, wiring_diagram_notes, jumper_settings, tags, download_count)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -141,7 +176,7 @@ export const saveManualToTurso = async (manual: Manual): Promise<boolean> => {
         manual.description,
         manual.fileSize,
         manual.fileType,
-        manual.fileUrl,
+        cloudFileUrl,
         manual.thumbnailUrl,
         manual.updatedAt,
         manual.wiringDiagramNotes || '',

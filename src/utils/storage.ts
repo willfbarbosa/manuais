@@ -57,7 +57,7 @@ export const getStoredManuals = (): Manual[] => {
 export const loadManualsAsync = async (): Promise<Manual[]> => {
   if (isTursoConfigured()) {
     const tursoData = await fetchManualsFromTurso();
-    if (tursoData) {
+    if (tursoData && tursoData.length > 0) {
       try {
         localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
       } catch (e) {}

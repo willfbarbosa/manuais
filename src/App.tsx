@@ -100,6 +100,10 @@ export function App() {
   const handleSaveManual = (manual: Manual) => {
     const updated = saveManual(manual);
     setManuals(updated);
+    setSelectedBrand('All');
+    setSelectedCategory('All');
+    setSearchQuery('');
+    setActiveTab('catalog');
   };
 
   const handleDeleteManual = (id: string) => {

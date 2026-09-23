@@ -151,7 +151,16 @@ export const ManualFormModal: React.FC<ManualFormModalProps> = ({
 
     if (uploadedPdfBlob) {
       try {
-        finalFileUrl = await savePdfFileToIDB(manualId, uploadedPdfBlob);
+        await savePdfFileToIDB(manualId, uploadedPdfBlob);
+        const reader = new FileReader();
+        const dataUrlPromise = new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(uploadedPdfBlob);
+        });
+        const dataUrl = await dataUrlPromise;
+        if (dataUrl) {
+          finalFileUrl = dataUrl;
+        }
       } catch (err) {
         console.error('Erro ao armazenar PDF no IndexedDB:', err);
       }
