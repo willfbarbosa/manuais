@@ -55,16 +55,35 @@ export const getStoredManuals = (): Manual[] => {
 };
 
 export const loadManualsAsync = async (): Promise<Manual[]> => {
+  const localManuals = getStoredManuals();
   if (isTursoConfigured()) {
     const tursoData = await fetchManualsFromTurso();
     if (tursoData && tursoData.length > 0) {
+      const tursoMap = new Map(tursoData.map(m => [m.id, m]));
+      const merged: Manual[] = [...tursoData];
+
+      // Preserve any local manual that has not synced to Turso DB yet
+      for (const local of localManuals) {
+        if (!tursoMap.has(local.id)) {
+          merged.unshift(local);
+          saveManualToTurso(local).catch(console.error);
+        }
+      }
+
       try {
-        localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(tursoData));
+        const lightweight = merged.map(m => {
+          if (m.fileUrl && m.fileUrl.length > 200000) {
+            return { ...m, fileUrl: `idb://${m.id}` };
+          }
+          return m;
+        });
+        localStorage.setItem(STORAGE_MANUALS_KEY, JSON.stringify(lightweight));
       } catch (e) {}
-      return tursoData;
+
+      return merged;
     }
   }
-  return getStoredManuals();
+  return localManuals;
 };
 
 export const saveManual = (manual: Manual): Manual[] => {

@@ -12,24 +12,27 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 const resolveFileUrlForCloud = async (manual: Manual): Promise<string> => {
-  const url = manual.fileUrl || '';
+  let url = manual.fileUrl || '';
   if (!url) return 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
-  if (url.startsWith('data:')) return url;
-  if (url.startsWith('http') && !url.startsWith('http://localhost') && !url.includes('127.0.0.1')) {
-    return url;
+
+  if (!url.startsWith('data:') && !url.startsWith('http')) {
+    try {
+      const blobUrl = await getPdfBlobUrlFromIDB(manual.id, url);
+      if (blobUrl) {
+        const res = await fetch(blobUrl);
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          url = await blobToBase64(blob);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not convert local PDF blob to base64 for Turso:', e);
+    }
   }
 
-  try {
-    const blobUrl = await getPdfBlobUrlFromIDB(manual.id, url);
-    if (blobUrl) {
-      const res = await fetch(blobUrl);
-      const blob = await res.blob();
-      if (blob && blob.size > 0) {
-        return await blobToBase64(blob);
-      }
-    }
-  } catch (e) {
-    console.warn('Could not convert local PDF blob to base64 for Turso:', e);
+  // Payload size safety guard for Turso HTTP API (limits payload size to avoid HTTP 413)
+  if (url.startsWith('data:') && url.length > 1500000) {
+    return `idb://${manual.id}`;
   }
 
   return url;
