@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { X, HardDriveDownload, Upload, RefreshCw, CheckCircle2, AlertTriangle, Smartphone, Cloud, ArrowRight } from 'lucide-react';
-import { exportManualsJSON, importManualsJSON, resetToInitialManuals } from '../utils/storage';
+import { exportManualsJSON, importManualsJSON, resetToInitialManuals, getStoredManuals, getStoredBrands, getStoredCategories } from '../utils/storage';
 import { Manual, BrandItem, CategoryItem } from '../types/manual';
-import { isTursoConfigured } from '../lib/turso';
+import { isTursoConfigured, syncAllLocalToTurso } from '../lib/turso';
 
 interface BackupModalProps {
   isOpen: boolean;
@@ -17,8 +17,29 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleSyncTurso = async () => {
+    setIsSyncing(true);
+    setStatusMsg(null);
+    try {
+      const manuals = getStoredManuals();
+      const brands = getStoredBrands();
+      const categories = getStoredCategories();
+      const ok = await syncAllLocalToTurso(manuals, brands, categories);
+      if (ok) {
+        setStatusMsg({ type: 'success', text: `Sucesso! Todos os ${manuals.length} manuais, marcas e categorias do seu PC foram enviados para o Banco Turso na nuvem!` });
+      } else {
+        setStatusMsg({ type: 'error', text: 'Não foi possível enviar para o Turso DB. Verifique se as variáveis de ambiente foram aplicadas na Vercel e faça um novo Deploy.' });
+      }
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Erro ao conectar ao Turso DB. Verifique as credenciais.' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleExport = () => {
     exportManualsJSON();
@@ -111,9 +132,21 @@ export const BackupModal: React.FC<BackupModalProps> = ({
             </div>
             <p className="text-[11px] text-zinc-400 leading-relaxed">
               {isTursoConfigured()
-                ? 'Seu banco de dados em nuvem está ativo na Vercel! Os manuais são sincronizados automaticamente em todos os celulares e computadores.'
+                ? 'Seu banco de dados em nuvem está ativo! Os manuais são sincronizados automaticamente em todos os celulares e computadores.'
                 : 'Você está no modo de armazenamento local do navegador. Para enviar os 10 manuais do computador para o celular, siga o passo a passo abaixo.'}
             </p>
+            {isTursoConfigured() && (
+              <div className="pt-2">
+                <button
+                  onClick={handleSyncTurso}
+                  disabled={isSyncing}
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Cloud className="w-4 h-4" />
+                  {isSyncing ? 'Sincronizando com Banco Turso...' : 'Enviar Manuais deste PC para a Nuvem (Turso)'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Transfer Step by Step Box */}
